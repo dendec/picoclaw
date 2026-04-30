@@ -140,7 +140,7 @@ func NewProviderWithMaxTokensFieldAndTimeout(
 func (p *Provider) buildRequestBody(
 	messages []Message, tools []ToolDefinition, model string, options map[string]any,
 ) map[string]any {
-	model = normalizeModel(model, p.apiBase)
+	model = p.normalizeModel(model)
 
 	requestBody := map[string]any{
 		"model":    model,
@@ -551,19 +551,39 @@ func parseStreamResponse(
 	}, nil
 }
 
-func normalizeModel(model, apiBase string) string {
+func (p *Provider) normalizeModel(model string) string {
 	before, after, ok := strings.Cut(model, "/")
 	if !ok {
 		return model
 	}
 
-	if strings.Contains(strings.ToLower(apiBase), "openrouter.ai") {
+	prefix := strings.ToLower(strings.TrimSpace(before))
+
+	// If the prefix matches our current provider name, it's safe to strip.
+	// This covers cases like "openai/gpt-4o" -> "gpt-4o" when using the openai provider.
+	if prefix == p.providerName {
+		return after
+	}
+
+	// For legacy support and generic providers (like litellm or openrouter),
+	// some prefixes are explicitly allowed to be stripped if the provider name
+	// doesn't match but is known to be one of the "stripping" providers.
+	// However, we MUST NOT strip "google/" if we are NOT using a google-specific provider,
+	// because providers like DeepInfra or Groq might use it as part of the model ID.
+	if strings.Contains(strings.ToLower(p.apiBase), "openrouter.ai") {
 		return model
 	}
 
-	prefix := strings.ToLower(before)
+	// If it's a known strip-prefix, but doesn't match our provider, we only strip
+	// if the current provider is one of the generic ones or if it's explicitly "openai".
 	if _, ok := stripModelPrefixProviders[prefix]; ok {
-		return after
+		if p.providerName == "openai" || p.providerName == "" {
+			// Special case: "google" prefix should generally be preserved unless we are sure.
+			if prefix == "google" && !strings.Contains(strings.ToLower(p.apiBase), "google") {
+				return model
+			}
+			return after
+		}
 	}
 
 	return model

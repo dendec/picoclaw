@@ -60,6 +60,7 @@ var protocolMetaByName = map[string]protocolMeta{
 	"longcat":                  {defaultAPIBase: "https://api.longcat.chat/openai"},
 	"modelscope":               {defaultAPIBase: "https://api-inference.modelscope.cn/v1"},
 	"mimo":                     {defaultAPIBase: "https://api.xiaomimimo.com/v1"},
+	"deepinfra":                {defaultAPIBase: "https://api.deepinfra.com/v1/openai"},
 }
 
 // createClaudeAuthProvider creates a Claude provider using OAuth credentials from auth store.
@@ -122,7 +123,15 @@ func ExtractProtocol(cfg *config.ModelConfig) (protocol, modelID string) {
 	if protocol == "" {
 		return "", strings.TrimSpace(rest)
 	}
-	return NormalizeProvider(protocol), strings.TrimSpace(rest)
+
+	// Only treat as protocol if it's a known protocol name
+	normProtocol := NormalizeProvider(protocol)
+	if _, ok := protocolMetaByName[normProtocol]; ok {
+		return normProtocol, strings.TrimSpace(rest)
+	}
+
+	// Not a known protocol, treat the whole string as the model ID (defaulting to openai protocol)
+	return "openai", model
 }
 
 // ResolveAPIBase returns the configured API base, or the protocol default when
@@ -250,7 +259,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		"ollama", "moonshot", "shengsuanyun", "deepseek", "cerebras",
 		"vivgrid", "volcengine", "vllm", "qwen", "qwen-portal", "qwen-intl", "qwen-international", "dashscope-intl",
 		"qwen-us", "dashscope-us", "mistral", "avian", "longcat", "modelscope", "novita",
-		"coding-plan", "alibaba-coding", "qwen-coding", "zai", "mimo":
+		"coding-plan", "alibaba-coding", "qwen-coding", "zai", "mimo", "deepinfra":
 		// All other OpenAI-compatible HTTP providers
 		if cfg.APIKey() == "" && cfg.APIBase == "" && !isEmptyAPIKeyAllowed(protocol) {
 			return nil, "", fmt.Errorf("api_key or api_base is required for HTTP-based protocol %q", protocol)

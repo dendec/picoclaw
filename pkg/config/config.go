@@ -191,7 +191,9 @@ type AgentConfig struct {
 	Workspace string            `json:"workspace,omitempty"`
 	Model     *AgentModelConfig `json:"model,omitempty"`
 	Skills    []string          `json:"skills,omitempty"`
-	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
+	Subagents            *SubagentsConfig  `json:"subagents,omitempty"`
+	DisableSkillsSummary *bool             `json:"disable_skills_summary,omitempty"`
+	IdentityTemplate     string            `json:"identity_template,omitempty"`
 }
 
 type SubagentsConfig struct {
@@ -276,6 +278,8 @@ type AgentDefaults struct {
 	SplitOnMarker             bool               `json:"split_on_marker"                  env:"PICOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
 	ContextManager            string             `json:"context_manager,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
 	ContextManagerConfig      json.RawMessage    `json:"context_manager_config,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
+	DisableSkillsSummary      bool               `json:"disable_skills_summary"           env:"PICOCLAW_AGENTS_DEFAULTS_DISABLE_SKILLS_SUMMARY"`
+	IdentityTemplate          string             `json:"identity_template,omitempty"      env:"PICOCLAW_AGENTS_DEFAULTS_IDENTITY_TEMPLATE"`
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB

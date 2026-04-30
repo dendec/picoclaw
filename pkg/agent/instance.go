@@ -122,12 +122,23 @@ func NewAgentInstance(
 	sessions := initSessionStore(sessionsDir)
 
 	mcpDiscoveryActive := cfg.Tools.MCP.Enabled && cfg.Tools.MCP.Discovery.Enabled
+	disableSkillsSummary := defaults.DisableSkillsSummary
+	if agentCfg.DisableSkillsSummary != nil {
+		disableSkillsSummary = *agentCfg.DisableSkillsSummary
+	}
+	identityTemplate := defaults.IdentityTemplate
+	if agentCfg.IdentityTemplate != "" {
+		identityTemplate = agentCfg.IdentityTemplate
+	}
+
 	contextBuilder := NewContextBuilder(workspace).
 		WithToolDiscovery(
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseBM25,
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseRegex,
 		).
-		WithSplitOnMarker(cfg.Agents.Defaults.SplitOnMarker)
+		WithSplitOnMarker(defaults.SplitOnMarker).
+		WithDisableSkillsSummary(disableSkillsSummary).
+		WithIdentityTemplate(identityTemplate)
 
 	agentID := routing.DefaultAgentID
 	agentName := ""

@@ -137,6 +137,13 @@ func EnableConsole() {
 	logger = logger.Output(io.MultiWriter(writers...))
 }
 
+func UseJSONOutput() {
+	mu.Lock()
+	defer mu.Unlock()
+	writers[0] = os.Stdout
+	logger = zerolog.New(io.MultiWriter(writers...)).With().Timestamp().Caller().Logger()
+}
+
 func GetLevel() LogLevel {
 	mu.RLock()
 	defer mu.RUnlock()

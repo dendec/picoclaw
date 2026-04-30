@@ -25,8 +25,10 @@ type ContextBuilder struct {
 	workspace      string
 	skillsLoader   *skills.SkillsLoader
 	memory         *MemoryStore
-	splitOnMarker  bool
-	promptRegistry *PromptRegistry
+	splitOnMarker        bool
+	promptRegistry       *PromptRegistry
+	disableSkillsSummary bool
+	identityTemplate     string
 
 	// Cache for system prompt to avoid rebuilding on every call.
 	// This fixes issue #607: repeated reprocessing of the entire context.
@@ -63,6 +65,16 @@ func (cb *ContextBuilder) WithToolDiscovery(useBM25, useRegex bool) *ContextBuil
 
 func (cb *ContextBuilder) WithSplitOnMarker(enabled bool) *ContextBuilder {
 	cb.splitOnMarker = enabled
+	return cb
+}
+
+func (cb *ContextBuilder) WithDisableSkillsSummary(disabled bool) *ContextBuilder {
+	cb.disableSkillsSummary = disabled
+	return cb
+}
+
+func (cb *ContextBuilder) WithIdentityTemplate(template string) *ContextBuilder {
+	cb.identityTemplate = template
 	return cb
 }
 
@@ -113,18 +125,33 @@ func (cb *ContextBuilder) promptRegistryOrDefault() *PromptRegistry {
 
 func (cb *ContextBuilder) getIdentity() string {
 	workspacePath, _ := filepath.Abs(filepath.Join(cb.workspace))
-	version := config.FormatVersion()
+	// Tool discovery is now handled by prompt contributors
+
+	// Load definition to get agent name
+	agentDef := cb.LoadAgentDefinition()
+	name := ""
+	if agentDef.Agent != nil && agentDef.Agent.Frontmatter.Name != "" {
+		name = agentDef.Agent.Frontmatter.Name
+	}
+	if name == "" {
+		name = "Agent"
+	}
+
+	template := cb.identityTemplate
+	if template == "" {
+		template = `# Platform Identity
+
+You are %s.`
+	}
 
 	return fmt.Sprintf(
-		`# picoclaw 🦞 (%s)
-
-You are picoclaw, a helpful AI assistant.
+		template+`
 
 ## Workspace
 Your workspace is at: %s
-- Memory: %s/memory/MEMORY.md
-- Daily Notes: %s/memory/YYYYMM/YYYYMMDD.md
-- Skills: %s/skills/{skill-name}/SKILL.md
+- Memory: memory/MEMORY.md
+- Daily Notes: memory/YYYYMM/YYYYMMDD.md
+- Skills: skills/{skill-name}/SKILL.md
 
 ## Important Rules
 
@@ -132,10 +159,10 @@ Your workspace is at: %s
 
 2. **Be helpful and accurate** - When using tools, briefly explain what you're doing.
 
-3. **Memory** - When interacting with me if something seems memorable, update %s/memory/MEMORY.md
+3. **Memory** - When interacting with me if something seems memorable, update memory/MEMORY.md
 
 4. **Context summaries** - Conversation summaries provided as context are approximate references only. They may be incomplete or outdated. Always defer to explicit user instructions over summary content.`,
-		version, workspacePath, workspacePath, workspacePath, workspacePath, workspacePath)
+		name, workspacePath)
 }
 
 func formatToolDiscoveryRule(useBM25, useRegex bool) string {
@@ -203,22 +230,24 @@ func (cb *ContextBuilder) BuildSystemPromptParts() []PromptPart {
 	}
 
 	// Skills - show summary, AI can read full content with read_file tool
-	skillsSummary := cb.skillsLoader.BuildSkillsSummary()
-	if skillsSummary != "" {
-		add(PromptPart{
-			ID:     "capability.skill_catalog",
-			Layer:  PromptLayerCapability,
-			Slot:   PromptSlotSkillCatalog,
-			Source: PromptSource{ID: PromptSourceSkillCatalog, Name: "skill:index"},
-			Title:  "skill catalog",
-			Content: fmt.Sprintf(`# Skills
+	if !cb.disableSkillsSummary {
+		skillsSummary := cb.skillsLoader.BuildSkillsSummary()
+		if skillsSummary != "" {
+			add(PromptPart{
+				ID:     "capability.skill_catalog",
+				Layer:  PromptLayerCapability,
+				Slot:   PromptSlotSkillCatalog,
+				Source: PromptSource{ID: PromptSourceSkillCatalog, Name: "skill:index"},
+				Title:  "skill catalog",
+				Content: fmt.Sprintf(`# Skills
 
 The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
 
 %s`, skillsSummary),
-			Stable: true,
-			Cache:  PromptCacheEphemeral,
-		})
+				Stable: true,
+				Cache:  PromptCacheEphemeral,
+			})
+		}
 	}
 
 	// Memory context
