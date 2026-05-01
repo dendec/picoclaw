@@ -123,11 +123,11 @@ func NewAgentInstance(
 
 	mcpDiscoveryActive := cfg.Tools.MCP.Enabled && cfg.Tools.MCP.Discovery.Enabled
 	disableSkillsSummary := defaults.DisableSkillsSummary
-	if agentCfg.DisableSkillsSummary != nil {
+	if agentCfg != nil && agentCfg.DisableSkillsSummary != nil {
 		disableSkillsSummary = *agentCfg.DisableSkillsSummary
 	}
 	identityTemplate := defaults.IdentityTemplate
-	if agentCfg.IdentityTemplate != "" {
+	if agentCfg != nil && agentCfg.IdentityTemplate != "" {
 		identityTemplate = agentCfg.IdentityTemplate
 	}
 

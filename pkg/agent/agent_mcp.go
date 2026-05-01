@@ -73,6 +73,16 @@ func (r *mcpRuntime) getManager() *mcp.Manager {
 	return r.manager
 }
 
+// GetMCPManager returns the active MCP manager if initialized.
+func (al *AgentLoop) GetMCPManager() *mcp.Manager {
+	return al.mcp.getManager()
+}
+
+// EnsureMCPInitialized is a public wrapper for ensureMCPInitialized.
+func (al *AgentLoop) EnsureMCPInitialized(ctx context.Context) error {
+	return al.ensureMCPInitialized(ctx)
+}
+
 // ensureMCPInitialized loads MCP servers/tools once so both Run() and direct
 // agent mode share the same initialization path.
 func (al *AgentLoop) ensureMCPInitialized(ctx context.Context) error {
