@@ -75,7 +75,7 @@ func init() {
 
 		writers = append(writers, consoleWriter)
 
-		logger = zerolog.New(io.MultiWriter(writers...)).With().Timestamp().Caller().Logger()
+		logger = zerolog.New(io.MultiWriter(writers...)).With().Timestamp().Logger()
 	})
 }
 
@@ -141,7 +141,7 @@ func UseJSONOutput() {
 	mu.Lock()
 	defer mu.Unlock()
 	writers[0] = os.Stdout
-	logger = zerolog.New(io.MultiWriter(writers...)).With().Timestamp().Caller().Logger()
+	logger = zerolog.New(io.MultiWriter(writers...)).With().Timestamp().Logger()
 }
 
 func GetLevel() LogLevel {
