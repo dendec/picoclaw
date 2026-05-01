@@ -98,7 +98,8 @@ var (
 	}
 
 	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
-	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
+	// It uses a group to identify paths starting with / or a drive letter at word boundaries.
+	absolutePathPattern = regexp.MustCompile(`(^|\s|file:)([A-Za-z]:\\[^\s\"']+|/[^\s\"']+)`)
 
 	// safePaths are kernel pseudo-devices that are always safe to reference in
 	// commands, regardless of workspace restriction. They contain no user data
@@ -1068,18 +1069,21 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 		// file:// URIs are still validated against the workspace boundary.
 		webSchemes := []string{"http:", "https:", "ftp:", "ftps:", "sftp:", "ssh:", "git:"}
 
-		matchIndices := absolutePathPattern.FindAllStringIndex(cmd, -1)
-
-		for _, loc := range matchIndices {
-			raw := cmd[loc[0]:loc[1]]
+		matchIndices := absolutePathPattern.FindAllStringSubmatchIndex(cmd, -1)
+		for _, locs := range matchIndices {
+			if len(locs) < 6 {
+				continue
+			}
+			// locs[4:6] contains the start and end of the second capture group (the actual path)
+			raw := cmd[locs[4]:locs[5]]
 
 			// Skip URL path components that look like they're from web URLs.
 			// When a URL like "https://github.com" is parsed, the regex captures
 			// "//github.com" as a match (the path portion after "https:").
 			// Use the exact match position (loc[0]) so that duplicate //path substrings
 			// in the same command are each evaluated at their own position.
-			if strings.HasPrefix(raw, "//") && loc[0] > 0 {
-				before := cmd[:loc[0]]
+			if strings.HasPrefix(raw, "//") && locs[0] > 0 {
+				before := cmd[:locs[0]]
 				isWebURL := false
 
 				for _, scheme := range webSchemes {
