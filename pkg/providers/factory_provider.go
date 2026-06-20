@@ -15,6 +15,7 @@ import (
 	anthropicmessages "github.com/sipeed/picoclaw/pkg/providers/anthropic_messages"
 	"github.com/sipeed/picoclaw/pkg/providers/azure"
 	"github.com/sipeed/picoclaw/pkg/providers/bedrock"
+	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
 
 type protocolMeta struct {
@@ -111,27 +112,7 @@ func ExtractProtocol(cfg *config.ModelConfig) (protocol, modelID string) {
 	if provider := strings.TrimSpace(cfg.Provider); provider != "" {
 		return NormalizeProvider(provider), model
 	}
-	if model == "" {
-		return "", ""
-	}
-
-	protocol, rest, found := strings.Cut(model, "/")
-	if !found {
-		return "openai", model
-	}
-	protocol = strings.TrimSpace(protocol)
-	if protocol == "" {
-		return "", strings.TrimSpace(rest)
-	}
-
-	// Only treat as protocol if it's a known protocol name
-	normProtocol := NormalizeProvider(protocol)
-	if _, ok := protocolMetaByName[normProtocol]; ok {
-		return normProtocol, strings.TrimSpace(rest)
-	}
-
-	// Not a known protocol, treat the whole string as the model ID (defaulting to openai protocol)
-	return "openai", model
+	return SplitModelProviderAndID(model, "openai")
 }
 
 // ResolveAPIBase returns the configured API base, or the protocol default when
@@ -163,6 +144,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 	}
 
 	protocol, modelID := ExtractProtocol(cfg)
+	authMethod := strings.ToLower(strings.TrimSpace(cfg.AuthMethod))
 
 	userAgent := cfg.UserAgent
 	if userAgent == "" {
@@ -172,12 +154,12 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 	switch protocol {
 	case "openai":
 		// OpenAI with OAuth/token auth (Codex-style)
-		if cfg.AuthMethod == "oauth" || cfg.AuthMethod == "token" {
+		if authMethod == "oauth" || authMethod == "token" {
 			provider, err := createCodexAuthProvider()
 			if err != nil {
 				return nil, "", err
 			}
-			return provider, modelID, nil
+			return finalizeProviderFromConfig(provider, modelID, cfg)
 		}
 		// OpenAI with API key
 		if cfg.APIKey() == "" && cfg.APIBase == "" {
@@ -198,9 +180,9 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.CustomHeaders,
 		)
 		provider.SetProviderName(protocol)
-		return provider, modelID, nil
+		return finalizeProviderFromConfig(provider, modelID, cfg)
 
-	case "azure", "azure-openai":
+	case "azure":
 		// Azure OpenAI uses deployment-based URLs, api-key header auth,
 		// and always sends max_completion_tokens.
 		if cfg.APIKey() == "" {
@@ -211,13 +193,13 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 				"api_base is required for azure protocol (e.g., https://your-resource.openai.azure.com)",
 			)
 		}
-		return azure.NewProviderWithTimeout(
+		return finalizeProviderFromConfig(azure.NewProviderWithTimeout(
 			cfg.APIKey(),
 			cfg.APIBase,
 			cfg.Proxy,
 			userAgent,
 			cfg.RequestTimeout,
-		), modelID, nil
+		), modelID, cfg)
 
 	case "bedrock":
 		// AWS Bedrock uses AWS SDK credentials (env vars, profiles, IAM roles, etc.)
@@ -253,10 +235,10 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		if err != nil {
 			return nil, "", fmt.Errorf("creating bedrock provider: %w", err)
 		}
-		return provider, modelID, nil
+		return finalizeProviderFromConfig(provider, modelID, cfg)
 
-	case "litellm", "lmstudio", "openrouter", "groq", "zhipu", "nvidia", "venice",
-		"ollama", "moonshot", "shengsuanyun", "deepseek", "cerebras",
+	case "litellm", "lmstudio", "gpt4free", "openrouter", "groq", "zhipu", "nvidia", "venice",
+		"ollama", "moonshot", "shengsuanyun", "siliconflow", "deepseek", "cerebras",
 		"vivgrid", "volcengine", "vllm", "qwen", "qwen-portal", "qwen-intl", "qwen-international", "dashscope-intl",
 		"qwen-us", "dashscope-us", "mistral", "avian", "longcat", "modelscope", "novita",
 		"coding-plan", "alibaba-coding", "qwen-coding", "zai", "mimo", "deepinfra":
@@ -279,7 +261,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.CustomHeaders,
 		)
 		provider.SetProviderName(protocol)
-		return provider, modelID, nil
+		return finalizeProviderFromConfig(provider, modelID, cfg)
 
 	case "gemini":
 		if cfg.APIKey() == "" && cfg.APIBase == "" {
@@ -289,7 +271,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		if apiBase == "" {
 			apiBase = getDefaultAPIBase(protocol)
 		}
-		return NewGeminiProvider(
+		return finalizeProviderFromConfig(NewGeminiProvider(
 			cfg.APIKey(),
 			apiBase,
 			cfg.Proxy,
@@ -297,7 +279,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.RequestTimeout,
 			cfg.ExtraBody,
 			cfg.CustomHeaders,
-		), modelID, nil
+		), modelID, cfg)
 
 	case "minimax":
 		// Minimax requires reasoning_split: true in the request body
@@ -326,22 +308,19 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.CustomHeaders,
 		)
 		provider.SetProviderName(protocol)
-		return provider, modelID, nil
+		return finalizeProviderFromConfig(provider, modelID, cfg)
 
 	case "anthropic":
-		if cfg.AuthMethod == "oauth" || cfg.AuthMethod == "token" {
+		if authMethod == "oauth" || authMethod == "token" {
 			// Use OAuth credentials from auth store
 			provider, err := createClaudeAuthProvider()
 			if err != nil {
 				return nil, "", err
 			}
-			return provider, modelID, nil
+			return finalizeProviderFromConfig(provider, modelID, cfg)
 		}
 		// Use API key with HTTP API
-		apiBase := cfg.APIBase
-		if apiBase == "" {
-			apiBase = "https://api.anthropic.com/v1"
-		}
+		apiBase := common.NormalizeBaseURL(cfg.APIBase, "https://api.anthropic.com/v1", true)
 		if cfg.APIKey() == "" {
 			return nil, "", fmt.Errorf("api_key is required for anthropic protocol (model: %s)", cfg.Model)
 		}
@@ -356,7 +335,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.CustomHeaders,
 		)
 		provider.SetProviderName(protocol)
-		return provider, modelID, nil
+		return finalizeProviderFromConfig(provider, modelID, cfg)
 
 	case "anthropic-messages":
 		// Anthropic Messages API with native format (HTTP-based, no SDK)
@@ -367,14 +346,14 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		if cfg.APIKey() == "" {
 			return nil, "", fmt.Errorf("api_key is required for anthropic-messages protocol (model: %s)", cfg.Model)
 		}
-		return anthropicmessages.NewProviderWithTimeout(
+		return finalizeProviderFromConfig(anthropicmessages.NewProviderWithTimeout(
 			cfg.APIKey(),
 			apiBase,
 			userAgent,
 			cfg.RequestTimeout,
-		), modelID, nil
+		), modelID, cfg)
 
-	case "coding-plan-anthropic", "alibaba-coding-anthropic":
+	case "alibaba-coding-anthropic":
 		// Alibaba Coding Plan with Anthropic-compatible API
 		apiBase := cfg.APIBase
 		if apiBase == "" {
@@ -383,31 +362,31 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		if cfg.APIKey() == "" {
 			return nil, "", fmt.Errorf("api_key is required for %q protocol (model: %s)", protocol, cfg.Model)
 		}
-		return anthropicmessages.NewProviderWithTimeout(
+		return finalizeProviderFromConfig(anthropicmessages.NewProviderWithTimeout(
 			cfg.APIKey(),
 			apiBase,
 			userAgent,
 			cfg.RequestTimeout,
-		), modelID, nil
+		), modelID, cfg)
 
 	case "antigravity":
-		return NewAntigravityProvider(), modelID, nil
+		return finalizeProviderFromConfig(NewAntigravityProvider(), modelID, cfg)
 
-	case "claude-cli", "claudecli":
+	case "claude-cli":
 		workspace := cfg.Workspace
 		if workspace == "" {
 			workspace = "."
 		}
-		return NewClaudeCliProvider(workspace), modelID, nil
+		return finalizeProviderFromConfig(NewClaudeCliProvider(workspace), modelID, cfg)
 
-	case "codex-cli", "codexcli":
+	case "codex-cli":
 		workspace := cfg.Workspace
 		if workspace == "" {
 			workspace = "."
 		}
-		return NewCodexCliProvider(workspace), modelID, nil
+		return finalizeProviderFromConfig(NewCodexCliProvider(workspace), modelID, cfg)
 
-	case "github-copilot", "copilot":
+	case "github-copilot":
 		apiBase := cfg.APIBase
 		if apiBase == "" {
 			apiBase = "localhost:4321"
@@ -420,16 +399,28 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		if err != nil {
 			return nil, "", err
 		}
-		return provider, modelID, nil
+		return finalizeProviderFromConfig(provider, modelID, cfg)
 
 	default:
 		return nil, "", fmt.Errorf("unknown protocol %q in model %q", protocol, cfg.Model)
 	}
 }
 
+func finalizeProviderFromConfig(
+	provider LLMProvider,
+	modelID string,
+	cfg *config.ModelConfig,
+) (LLMProvider, string, error) {
+	wrapped, err := wrapProviderWithToolSchemaTransform(provider, cfg.ToolSchemaTransform)
+	if err != nil {
+		return nil, "", err
+	}
+	return wrapped, modelID, nil
+}
+
 func isEmptyAPIKeyAllowed(protocol string) bool {
-	meta, ok := protocolMetaByName[protocol]
-	return ok && meta.emptyAPIKeyAllowed
+	option, ok := modelProviderOptionForName(protocol)
+	return ok && option.EmptyAPIKeyAllowed
 }
 
 // IsEmptyAPIKeyAllowedForProtocol reports whether a protocol allows requests
@@ -437,6 +428,16 @@ func isEmptyAPIKeyAllowed(protocol string) bool {
 func IsEmptyAPIKeyAllowedForProtocol(protocol string) bool {
 	protocol = strings.ToLower(strings.TrimSpace(protocol))
 	return isEmptyAPIKeyAllowed(protocol)
+}
+
+// IsHTTPAPIProtocol reports whether a provider uses an HTTP API base in the
+// model configuration path. This excludes providers such as Bedrock, CLI
+// bridges, and OAuth-only managed providers even if they do not require an
+// explicit api_key field.
+func IsHTTPAPIProtocol(protocol string) bool {
+	protocol = NormalizeProvider(protocol)
+	option, ok := modelProviderOptionsByName[protocol]
+	return ok && option.httpAPI
 }
 
 // DefaultAPIBaseForProtocol returns the configured default API base for a protocol.
@@ -448,9 +449,9 @@ func DefaultAPIBaseForProtocol(protocol string) string {
 
 // getDefaultAPIBase returns the default API base URL for a given protocol.
 func getDefaultAPIBase(protocol string) string {
-	meta, ok := protocolMetaByName[protocol]
+	option, ok := modelProviderOptionForName(protocol)
 	if !ok {
 		return ""
 	}
-	return meta.defaultAPIBase
+	return option.DefaultAPIBase
 }
