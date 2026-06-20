@@ -169,6 +169,7 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 		template = `# Platform Identity
 
 You are %s.`
+	}
 
 	return fmt.Sprintf(
 		template+`
