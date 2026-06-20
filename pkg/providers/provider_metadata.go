@@ -561,6 +561,17 @@ var modelProviderOptionsByName = map[string]ModelProviderOption{
 		Aliases:             []string{"dashscope-us"},
 		httpAPI:             true,
 	},
+	"deepinfra": {
+		ID:                  "deepinfra",
+		DisplayName:         "DeepInfra",
+		Domain:              "deepinfra.com",
+		DefaultAPIBase:      "https://api.deepinfra.com/v1/openai",
+		CreateAllowed:       true,
+		DefaultModelAllowed: true,
+		SupportsFetch:       true,
+		Priority:            33,
+		httpAPI:             true,
+	},
 }
 
 var normalizedModelProviderAliasesByName = buildModelProviderAliasMap()
